@@ -26,9 +26,11 @@ import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
@@ -46,7 +48,7 @@ public class InfluxDbReporterTest {
 
     @Before
     public void init() {
-        globalTags = new HashMap<String, String>();
+        globalTags = new HashMap<>();
         globalTags.put("global", "tag001");
         MockitoAnnotations.initMocks(this);
         reporter = InfluxDbReporter
@@ -267,11 +269,11 @@ public class InfluxDbReporterTest {
             .build(influxDb);
 
         reporter.report(
-            this.<Gauge>map(),
-            this.<Counter>map(),
-            this.<Histogram>map(),
+            this.map(),
+            this.map(),
+            this.map(),
             this.map("com.example.resources.RandomResource", mock(Meter.class)),
-            this.<Timer>map()
+            this.map()
         );
 
         final ArgumentCaptor<InfluxDbPoint> influxDbPointCaptor = ArgumentCaptor.forClass(InfluxDbPoint.class);
@@ -293,11 +295,11 @@ public class InfluxDbReporterTest {
             .build(influxDb);
 
         reporter.report(
-            this.<Gauge>map(),
-            this.<Counter>map(),
-            this.<Histogram>map(),
+            this.map(),
+            this.map(),
+            this.map(),
             this.map("com.example.resources.RandomResource", mock(Meter.class)),
-            this.<Timer>map()
+            this.map()
         );
 
         final ArgumentCaptor<InfluxDbPoint> influxDbPointCaptor = ArgumentCaptor.forClass(InfluxDbPoint.class);
@@ -518,13 +520,31 @@ public class InfluxDbReporterTest {
     }
 
     @Test
+    public void shouldSkipIdleCounters()  {
+        when(influxDb.hasSeriesData()).thenReturn(true);
+
+        final Counter counter = mock(Counter.class);
+        when(counter.getCount()).thenReturn(42L);
+
+        InfluxDbReporter skippingReporter = InfluxDbReporter
+                .forRegistry(registry)
+                .skipIdleMetrics(true)
+                .build(influxDb);
+
+        skippingReporter.report(map(), map("question-of-life", counter), map(), map(), map());
+        skippingReporter.report(map(), map("question-of-life", counter), map(), map(), map());
+
+        verify(influxDb, times(1)).appendPoints(ArgumentMatchers.any(InfluxDbPoint.class));
+    }
+
+    @Test
     public void shouldCatchExceptions() throws Exception {
-        doThrow(ConnectException.class).when(influxDb).flush();
-        reporter
-        .report(map("gauge", gauge((byte) 1)), this.<Counter>map(), this.<Histogram>map(), this.<Meter>map(), this.<Timer>map());
-        doThrow(IOException.class).when(influxDb).flush();
-        reporter
-        .report(map("gauge", gauge((byte) 1)), this.<Counter>map(), this.<Histogram>map(), this.<Meter>map(), this.<Timer>map());
+        doThrow(ConnectException.class).when(influxDb).writeData();
+        reporter.report(map("gauge", gauge((byte) 1)), this.map(), this.map(), this.map(), this.map());
+        doThrow(IOException.class).when(influxDb).writeData();
+        reporter.report(map("gauge", gauge((byte) 1)), this.map(), this.map(), this.map(), this.map());
+        doThrow(RuntimeException.class).when(influxDb).flush();
+        reporter.report(map("gauge", gauge((byte) 1)), this.map(), this.map(), this.map(), this.map());
     }
 
 
